@@ -51,3 +51,9 @@ Desktop.ini
 
 # Claude Code
 .claude/
+
+# OAsset build output (AssetBundles)
+Assets/StreamingAssets/AB/*.bundle
+Assets/StreamingAssets/AB/*.manifest.json
+Assets/StreamingAssets/AB/version.txt
+Assets/StreamingAssets/AB/unifiedraytracing
