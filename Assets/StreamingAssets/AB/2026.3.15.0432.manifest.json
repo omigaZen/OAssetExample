@@ -1,0 +1,27 @@
+{
+    "AssetList": [
+        {
+            "AssetPath": "Assets/ToAb/Triangle.prefab",
+            "BundleID": 0,
+            "DependBundleIDs": []
+        }
+    ],
+    "BundleList": [
+        {
+            "BundleName": "assets_toab_triangle.bundle",
+            "UnityCRC": 2507661759,
+            "FileHash": "33558d69e5e272ee75f7306cfac06164",
+            "FileCRC": 1274731402,
+            "FileSize": 34011,
+            "DependBundleIDs": []
+        },
+        {
+            "BundleName": "unifiedraytracing",
+            "UnityCRC": 1934228776,
+            "FileHash": "82def9385babfae2a689279a3798f427",
+            "FileCRC": 3136100165,
+            "FileSize": 25212,
+            "DependBundleIDs": []
+        }
+    ]
+}

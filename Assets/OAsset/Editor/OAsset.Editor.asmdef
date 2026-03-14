@@ -1,0 +1,19 @@
+{
+    "name": "OAsset.Editor",
+    "rootNamespace": "OAsset.Editor",
+    "references": [
+        "OAsset.Runtime",
+        "UniTask"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
