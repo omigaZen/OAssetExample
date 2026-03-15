@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Networking;
 using Cysharp.Threading.Tasks;
@@ -124,12 +125,13 @@ namespace OAsset
             if (!_manifest.TryGetAsset(assetPath, out var assetInfo))
                 throw new FileNotFoundException($"[OAsset] Asset not found in manifest: {assetPath}");
 
-            // 先加载依赖的 AB 包（从 BundleInfo 获取依赖）
+            // 先并行加载依赖的 AB 包
             var bundleInfo = _manifest.BundleList[assetInfo.BundleID];
-            if (bundleInfo.DependBundleIDs != null)
+            if (bundleInfo.DependBundleIDs is { Length: > 0 })
             {
-                foreach (int depId in bundleInfo.DependBundleIDs)
-                    await EnsureBundleLoaded(_manifest.BundleList[depId]);
+                await UniTask.WhenAll(
+                    bundleInfo.DependBundleIDs.Select(depId =>
+                        EnsureBundleLoaded(_manifest.BundleList[depId])));
             }
 
             // 加载主 Bundle
@@ -157,6 +159,51 @@ namespace OAsset
                 kvp.Value.Unload(unloadAllObjects);
             _loadedBundles.Clear();
             _loadingBundles.Clear();
+        }
+
+        /// <summary>
+        /// 清理缓存中不再被当前 manifest 引用的 Bundle 文件
+        /// </summary>
+        public long CleanUnusedCache()
+        {
+            if (_manifest == null) return 0;
+
+            string bundleFilesDir = Path.Combine(_cacheRoot, "BundleFiles");
+            if (!Directory.Exists(bundleFilesDir)) return 0;
+
+            // 收集当前 manifest 中所有有效的 FileHash
+            var validHashes = new HashSet<string>(_manifest.BundleList.Count);
+            foreach (var bundle in _manifest.BundleList)
+                validHashes.Add(bundle.FileHash);
+
+            long freedBytes = 0;
+
+            // 遍历二级目录结构 BundleFiles/{prefix}/{hash}/
+            foreach (string prefixDir in Directory.GetDirectories(bundleFilesDir))
+            {
+                foreach (string hashDir in Directory.GetDirectories(prefixDir))
+                {
+                    string hash = Path.GetFileName(hashDir);
+                    if (!validHashes.Contains(hash))
+                    {
+                        // 统计释放的空间
+                        foreach (string file in Directory.GetFiles(hashDir))
+                            freedBytes += new FileInfo(file).Length;
+
+                        Directory.Delete(hashDir, true);
+                        Debug.Log($"[OAsset] Cleaned unused cache: {hash}");
+                    }
+                }
+
+                // 如果前缀目录已空，也删除
+                if (Directory.GetDirectories(prefixDir).Length == 0)
+                    Directory.Delete(prefixDir);
+            }
+
+            if (freedBytes > 0)
+                Debug.Log($"[OAsset] Cache cleanup complete, freed {freedBytes / 1024f:F1} KB.");
+
+            return freedBytes;
         }
 
         private async UniTask EnsureBundleLoaded(BundleInfo bundleInfo)

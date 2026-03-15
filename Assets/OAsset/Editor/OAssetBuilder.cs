@@ -90,7 +90,7 @@ namespace OAsset.Editor
             }
 
             // 5. 生成 version.txt
-            string version = DateTime.Now.ToString("yyyy.M.d.HHmmss");
+            string version = DateTime.Now.ToString("yyyy.MM.dd.HHmmss");
             string versionPath = Path.Combine(OutputDir, VersionFileName);
             File.WriteAllText(versionPath, version);
 
@@ -190,10 +190,15 @@ namespace OAsset.Editor
 
                 // 依赖
                 string[] deps = buildManifest.GetDirectDependencies(allBundles[i]);
-                bundleInfo.DependBundleIDs = deps
-                    .Where(d => bundleIndexMap.ContainsKey(d))
-                    .Select(d => bundleIndexMap[d])
-                    .ToArray();
+                var depIds = new List<int>(deps.Length);
+                foreach (string d in deps)
+                {
+                    if (bundleIndexMap.TryGetValue(d, out int depIndex))
+                        depIds.Add(depIndex);
+                    else
+                        Debug.LogWarning($"[OAsset] Dependency not found in build output: {d} (referenced by {allBundles[i]})");
+                }
+                bundleInfo.DependBundleIDs = depIds.ToArray();
 
                 manifest.BundleList.Add(bundleInfo);
             }

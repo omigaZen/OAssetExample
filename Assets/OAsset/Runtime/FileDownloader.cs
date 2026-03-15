@@ -20,7 +20,7 @@ namespace OAsset
             {
                 uint crc = i;
                 for (int j = 0; j < 8; j++)
-                    crc = (crc >> 1) ^ (0xEDB88320 & ~((crc & 1) - 1));
+                    crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
                 _crc32Table[i] = crc;
             }
         }
