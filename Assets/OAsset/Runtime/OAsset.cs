@@ -25,7 +25,7 @@ namespace OAsset
 
         public bool IsInitialized => _initialized;
 
-        public async UniTask InitiateAsync(OAssetConfig config)
+        public async UniTask InitializeAsync(OAssetConfig config)
         {
             if (_initialized)
             {
@@ -70,6 +70,11 @@ namespace OAsset
                         string newManifestPath = Path.Combine(_cacheRoot, $"{remoteVersion}.manifest.json");
                         File.WriteAllBytes(newManifestPath, manifestData);
                         File.WriteAllText(cachedVersionPath, remoteVersion);
+
+                        // 删除旧 manifest 文件
+                        string oldManifestPath = Path.Combine(_cacheRoot, $"{localVersion}.manifest.json");
+                        if (!string.IsNullOrEmpty(localVersion) && File.Exists(oldManifestPath))
+                            File.Delete(oldManifestPath);
                     }
                     else
                     {
@@ -114,16 +119,16 @@ namespace OAsset
             Debug.LogWarning($"[OAsset] Editor: asset not found at {assetPath}, falling back to bundle.");
 #endif
             if (!_initialized)
-                throw new InvalidOperationException("[OAsset] Not initialized. Call InitiateAsync first.");
+                throw new InvalidOperationException("[OAsset] Not initialized. Call InitializeAsync first.");
 
             if (!_manifest.TryGetAsset(assetPath, out var assetInfo))
                 throw new FileNotFoundException($"[OAsset] Asset not found in manifest: {assetPath}");
 
-            // 先加载依赖的 AB 包
+            // 先加载依赖的 AB 包（从 BundleInfo 获取依赖）
             var bundleInfo = _manifest.BundleList[assetInfo.BundleID];
-            if (assetInfo.DependBundleIDs != null)
+            if (bundleInfo.DependBundleIDs != null)
             {
-                foreach (int depId in assetInfo.DependBundleIDs)
+                foreach (int depId in bundleInfo.DependBundleIDs)
                     await EnsureBundleLoaded(_manifest.BundleList[depId]);
             }
 
@@ -169,12 +174,19 @@ namespace OAsset
                 return;
             }
 
-            var task = LoadBundleInternal(bundleInfo);
-            _loadingBundles[bundleMD5] = task;
+            // 使用 UniTask.Lazy 消除竞态窗口：
+            // 若直接写 var task = LoadBundleInternal(bundleInfo)，async 方法会立即同步执行
+            // 直到内部第一个 await 挂起，此时 _loadingBundles 尚未存入该 task，
+            // 并发调用方在此窗口内查不到它，可能发起重复加载。
+            // UniTask.Lazy 仅包装工厂函数，不立即调用；
+            // 先将 lazy.Task 存入字典，首次 await 时才真正开始执行，
+            // 保证顺序为「创建 → 存入字典 → 执行」。
+            var lazy = UniTask.Lazy(() => LoadBundleInternal(bundleInfo));
+            _loadingBundles[bundleMD5] = lazy.Task;
 
             try
             {
-                await task;
+                await lazy.Task;
             }
             finally
             {
@@ -223,8 +235,6 @@ namespace OAsset
         /// </summary>
         private async UniTask InitFromStreamingAssets()
         {
-            string streamingPath = Path.Combine(Application.streamingAssetsPath, StreamingAssetsSubDir);
-
             // 1. 创建缓存目录
             Directory.CreateDirectory(Path.Combine(_cacheRoot, "BundleFiles"));
 
@@ -239,7 +249,7 @@ namespace OAsset
             string manifestJson = await ReadStreamingFile(manifestUrl);
             var manifest = Manifest.FromJson(manifestJson);
 
-            // 4. 复制每个 Bundle 到缓存目录
+            // 4. 复制每个 Bundle 到缓存目录（含 CRC 校验）
             for (int i = 0; i < manifest.BundleList.Count; i++)
             {
                 var bundle = manifest.BundleList[i];
@@ -247,6 +257,15 @@ namespace OAsset
 
                 string bundleUrl = GetStreamingAssetsUrl(bundle.BundleName);
                 byte[] bundleData = await ReadStreamingFileBytes(bundleUrl);
+
+                // 校验文件大小
+                if (bundleData.Length != bundle.FileSize)
+                    throw new Exception($"[OAsset] StreamingAssets size mismatch: {bundle.BundleName}");
+
+                // 校验 CRC32
+                uint crc = FileDownloader.ComputeCRC32(bundleData);
+                if (crc != bundle.FileCRC)
+                    throw new Exception($"[OAsset] StreamingAssets CRC mismatch: {bundle.BundleName}");
 
                 FileDownloader.WriteBundleToCache(bundleData, bundle, _cacheRoot);
             }
@@ -269,34 +288,46 @@ namespace OAsset
 #endif
         }
 
-        private static async UniTask<string> ReadStreamingFile(string path)
+        private static UniTask<string> ReadStreamingFile(string path)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
+            return ReadStreamingFileAndroid(path);
+#else
+            if (!File.Exists(path))
+                throw new FileNotFoundException($"[OAsset] StreamingAssets file not found: {path}");
+            return UniTask.FromResult(File.ReadAllText(path));
+#endif
+        }
+
+        private static UniTask<byte[]> ReadStreamingFileBytes(string path)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return ReadStreamingFileBytesAndroid(path);
+#else
+            if (!File.Exists(path))
+                throw new FileNotFoundException($"[OAsset] StreamingAssets file not found: {path}");
+            return UniTask.FromResult(File.ReadAllBytes(path));
+#endif
+        }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        private static async UniTask<string> ReadStreamingFileAndroid(string path)
+        {
             using var request = UnityWebRequest.Get(path);
             await request.SendWebRequest().ToUniTask();
             if (request.result != UnityWebRequest.Result.Success)
                 throw new Exception($"[OAsset] Failed to read StreamingAssets: {request.error} ({path})");
             return request.downloadHandler.text;
-#else
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"[OAsset] StreamingAssets file not found: {path}");
-            return File.ReadAllText(path);
-#endif
         }
 
-        private static async UniTask<byte[]> ReadStreamingFileBytes(string path)
+        private static async UniTask<byte[]> ReadStreamingFileBytesAndroid(string path)
         {
-#if UNITY_ANDROID && !UNITY_EDITOR
             using var request = UnityWebRequest.Get(path);
             await request.SendWebRequest().ToUniTask();
             if (request.result != UnityWebRequest.Result.Success)
                 throw new Exception($"[OAsset] Failed to read StreamingAssets: {request.error} ({path})");
             return request.downloadHandler.data;
-#else
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"[OAsset] StreamingAssets file not found: {path}");
-            return File.ReadAllBytes(path);
-#endif
         }
+#endif
     }
 }

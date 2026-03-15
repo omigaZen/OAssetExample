@@ -9,7 +9,6 @@ namespace OAsset
     {
         public string AssetPath;
         public int BundleID;
-        public int[] DependBundleIDs;
     }
 
     [Serializable]
@@ -30,19 +29,17 @@ namespace OAsset
         public List<BundleInfo> BundleList = new List<BundleInfo>();
 
         private Dictionary<string, AssetInfo> _assetLookup;
-        private bool _dirty = true;
 
         public void BuildLookup()
         {
             _assetLookup = new Dictionary<string, AssetInfo>(AssetList.Count);
             foreach (var asset in AssetList)
                 _assetLookup[asset.AssetPath] = asset;
-            _dirty = false;
         }
 
         public bool TryGetAsset(string assetPath, out AssetInfo info)
         {
-            if (_dirty || _assetLookup == null)
+            if (_assetLookup == null)
                 BuildLookup();
             return _assetLookup.TryGetValue(assetPath, out info);
         }

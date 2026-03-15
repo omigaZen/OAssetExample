@@ -31,7 +31,7 @@ using OAsset;
 
 // 初始化
 var config = Resources.Load<OAssetConfig>("OAssetConfig");
-await OAsset.Instance.InitiateAsync(config);
+await OAsset.Instance.InitializeAsync(config);
 
 // 加载资源
 var prefab = await OAsset.Instance.LoadAssetAsync<GameObject>("Assets/ToAB/Player.prefab");
@@ -54,7 +54,6 @@ Instantiate(prefab);
 | serverUrl | 资源服务器地址 |
 | timeoutSeconds | 请求超时时间 |
 | cacheRootPath | 缓存根目录 |
-| maxCacheSizeMB | 最大缓存大小 |
 
 ## 打包菜单
 

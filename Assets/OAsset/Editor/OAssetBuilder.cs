@@ -90,7 +90,7 @@ namespace OAsset.Editor
             }
 
             // 5. 生成 version.txt
-            string version = DateTime.Now.ToString("yyyy.M.d.HHmm");
+            string version = DateTime.Now.ToString("yyyy.M.d.HHmmss");
             string versionPath = Path.Combine(OutputDir, VersionFileName);
             File.WriteAllText(versionPath, version);
 
@@ -210,13 +210,6 @@ namespace OAsset.Editor
                     AssetPath = path,
                     BundleID = bundleId,
                 };
-
-                // 收集依赖 bundle
-                string[] deps = buildManifest.GetAllDependencies(bundleName);
-                assetInfo.DependBundleIDs = deps
-                    .Where(d => bundleIndexMap.ContainsKey(d) && d != bundleName)
-                    .Select(d => bundleIndexMap[d])
-                    .ToArray();
 
                 manifest.AssetList.Add(assetInfo);
             }

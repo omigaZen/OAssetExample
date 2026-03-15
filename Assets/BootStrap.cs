@@ -15,7 +15,7 @@ public class BootStrap : MonoBehaviour
     private async UniTaskVoid Initialize()
     {
         var oasset = OAsset.OAsset.Instance;
-        await oasset.InitiateAsync(config);
+        await oasset.InitializeAsync(config);
         var o = await oasset.LoadAssetAsync<GameObject>("Assets/ToAb/Triangle.prefab");
         Object.Instantiate(o, this.transform);
         

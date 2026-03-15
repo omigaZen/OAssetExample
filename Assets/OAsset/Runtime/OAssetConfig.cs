@@ -11,7 +11,6 @@ namespace OAsset
 
         [Header("缓存配置")]
         public string cacheRootPath;
-        public int maxCacheSizeMB = 1024;
 
         public string GetCacheRoot()
         {

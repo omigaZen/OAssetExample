@@ -9,6 +9,64 @@ namespace OAsset
     public static class FileDownloader
     {
         private const int MaxRetries = 3;
+        private const int CrcBufferSize = 8192;
+
+        private static readonly uint[] _crc32Table;
+
+        static FileDownloader()
+        {
+            _crc32Table = new uint[256];
+            for (uint i = 0; i < 256; i++)
+            {
+                uint crc = i;
+                for (int j = 0; j < 8; j++)
+                    crc = (crc >> 1) ^ (0xEDB88320 & ~((crc & 1) - 1));
+                _crc32Table[i] = crc;
+            }
+        }
+
+        private static async UniTask<T> RetryAsync<T>(Func<UniTask<T>> action, string description)
+        {
+            Exception lastError = null;
+            for (int attempt = 0; attempt < MaxRetries; attempt++)
+            {
+                if (attempt > 0)
+                    await UniTask.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+                try
+                {
+                    return await action();
+                }
+                catch (Exception e)
+                {
+                    lastError = e;
+                    Debug.LogWarning($"[OAsset] {description} attempt {attempt + 1}/{MaxRetries} failed: {e.Message}");
+                }
+            }
+
+            throw new Exception($"[OAsset] {description} failed after {MaxRetries} attempts", lastError);
+        }
+
+        private static async UniTask RetryAsync(Func<UniTask> action, string description)
+        {
+            Exception lastError = null;
+            for (int attempt = 0; attempt < MaxRetries; attempt++)
+            {
+                if (attempt > 0)
+                    await UniTask.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+                try
+                {
+                    await action();
+                    return;
+                }
+                catch (Exception e)
+                {
+                    lastError = e;
+                    Debug.LogWarning($"[OAsset] {description} attempt {attempt + 1}/{MaxRetries} failed: {e.Message}");
+                }
+            }
+
+            throw new Exception($"[OAsset] {description} failed after {MaxRetries} attempts", lastError);
+        }
 
         public static async UniTask DownloadFile(string url, string localPath, int timeoutSeconds,
             Action<float> onProgress = null)
@@ -17,39 +75,24 @@ namespace OAsset
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
 
-            Exception lastError = null;
-            for (int attempt = 0; attempt < MaxRetries; attempt++)
+            await RetryAsync(async () =>
             {
-                if (attempt > 0)
-                    await UniTask.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+                using var request = UnityWebRequest.Get(url);
+                request.timeout = timeoutSeconds;
+                request.downloadHandler = new DownloadHandlerFile(localPath) { removeFileOnAbort = true };
 
-                try
+                var op = request.SendWebRequest();
+                while (!op.isDone)
                 {
-                    using var request = UnityWebRequest.Get(url);
-                    request.timeout = timeoutSeconds;
-                    request.downloadHandler = new DownloadHandlerFile(localPath) { removeFileOnAbort = true };
-
-                    var op = request.SendWebRequest();
-                    while (!op.isDone)
-                    {
-                        onProgress?.Invoke(op.progress);
-                        await UniTask.Yield();
-                    }
-
-                    if (request.result != UnityWebRequest.Result.Success)
-                        throw new Exception($"Download failed: {request.error} ({url})");
-
-                    onProgress?.Invoke(1f);
-                    return;
+                    onProgress?.Invoke(op.progress);
+                    await UniTask.Yield();
                 }
-                catch (Exception e)
-                {
-                    lastError = e;
-                    Debug.LogWarning($"[OAsset] Download attempt {attempt + 1}/{MaxRetries} failed: {e.Message}");
-                }
-            }
 
-            throw new Exception($"[OAsset] Download failed after {MaxRetries} attempts: {url}", lastError);
+                if (request.result != UnityWebRequest.Result.Success)
+                    throw new Exception($"Download failed: {request.error} ({url})");
+
+                onProgress?.Invoke(1f);
+            }, $"Download {url}");
         }
 
         /// <summary>
@@ -138,75 +181,59 @@ namespace OAsset
 
         public static async UniTask<string> DownloadText(string url, int timeoutSeconds)
         {
-            Exception lastError = null;
-            for (int attempt = 0; attempt < MaxRetries; attempt++)
+            return await RetryAsync(async () =>
             {
-                if (attempt > 0)
-                    await UniTask.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+                using var request = UnityWebRequest.Get(url);
+                request.timeout = timeoutSeconds;
+                await request.SendWebRequest().ToUniTask();
 
-                try
-                {
-                    using var request = UnityWebRequest.Get(url);
-                    request.timeout = timeoutSeconds;
-                    await request.SendWebRequest().ToUniTask();
+                if (request.result != UnityWebRequest.Result.Success)
+                    throw new Exception($"Download failed: {request.error} ({url})");
 
-                    if (request.result != UnityWebRequest.Result.Success)
-                        throw new Exception($"Download failed: {request.error} ({url})");
-
-                    return request.downloadHandler.text;
-                }
-                catch (Exception e)
-                {
-                    lastError = e;
-                }
-            }
-
-            throw new Exception($"[OAsset] Download text failed after {MaxRetries} attempts: {url}", lastError);
+                return request.downloadHandler.text;
+            }, $"Download text {url}");
         }
 
         public static async UniTask<byte[]> DownloadBytes(string url, int timeoutSeconds)
         {
-            Exception lastError = null;
-            for (int attempt = 0; attempt < MaxRetries; attempt++)
+            return await RetryAsync(async () =>
             {
-                if (attempt > 0)
-                    await UniTask.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+                using var request = UnityWebRequest.Get(url);
+                request.timeout = timeoutSeconds;
+                await request.SendWebRequest().ToUniTask();
 
-                try
-                {
-                    using var request = UnityWebRequest.Get(url);
-                    request.timeout = timeoutSeconds;
-                    await request.SendWebRequest().ToUniTask();
+                if (request.result != UnityWebRequest.Result.Success)
+                    throw new Exception($"Download failed: {request.error} ({url})");
 
-                    if (request.result != UnityWebRequest.Result.Success)
-                        throw new Exception($"Download failed: {request.error} ({url})");
-
-                    return request.downloadHandler.data;
-                }
-                catch (Exception e)
-                {
-                    lastError = e;
-                }
-            }
-
-            throw new Exception($"[OAsset] Download bytes failed after {MaxRetries} attempts: {url}", lastError);
+                return request.downloadHandler.data;
+            }, $"Download bytes {url}");
         }
 
         public static uint ComputeFileCRC32(string filePath)
         {
-            byte[] data = File.ReadAllBytes(filePath);
-            return ComputeCRC32(data);
+            using var stream = File.OpenRead(filePath);
+            return ComputeCRC32(stream);
+        }
+
+        public static uint ComputeCRC32(Stream stream)
+        {
+            uint crc = 0xFFFFFFFF;
+            byte[] buffer = new byte[CrcBufferSize];
+            int bytesRead;
+            while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                for (int i = 0; i < bytesRead; i++)
+                    crc = (crc >> 8) ^ _crc32Table[(crc ^ buffer[i]) & 0xFF];
+            }
+
+            return ~crc;
         }
 
         public static uint ComputeCRC32(byte[] data)
         {
             uint crc = 0xFFFFFFFF;
             foreach (byte b in data)
-            {
-                crc ^= b;
-                for (int i = 0; i < 8; i++)
-                    crc = (crc >> 1) ^ (0xEDB88320 & ~((crc & 1) - 1));
-            }
+                crc = (crc >> 8) ^ _crc32Table[(crc ^ b) & 0xFF];
             return ~crc;
         }
     }
