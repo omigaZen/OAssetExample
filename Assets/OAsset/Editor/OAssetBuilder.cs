@@ -70,9 +70,10 @@ namespace OAsset.Editor
             // 2. 清理旧的 Bundle 名称（可选）并应用新名称
             ApplyBundleNamesInternal(strategy);
 
-            // 3. 确保输出目录存在
-            if (!Directory.Exists(OutputDir))
-                Directory.CreateDirectory(OutputDir);
+            // 3. 清除并重建输出目录
+            if (Directory.Exists(OutputDir))
+                Directory.Delete(OutputDir, true);
+            Directory.CreateDirectory(OutputDir);
 
             // 4. 构建 AssetBundles (LZ4)
             var options = BuildAssetBundleOptions.ChunkBasedCompression;
